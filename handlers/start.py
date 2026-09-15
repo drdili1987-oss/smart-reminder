@@ -2,11 +2,11 @@ import logging
 
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, BufferedInputFile
 
 from config import DEFAULT_TIMEZONE
 from keyboards.inline import timezone_choice_keyboard, help_topics_keyboard
-from services import firebase_service
+from services import firebase_service, tts_service
 
 logger = logging.getLogger(__name__)
 router = Router(name="start")
@@ -19,8 +19,17 @@ HELP_TEXT = (
     "• /list — Barcha faol eslatmalar\n"
     "• /categories — Kategoriyalar bo'yicha ko'rish\n"
     "• /calendar — Interaktiv oylik taqvim\n"
+    "• /voice_help — 🎧 Ovozli yo'riqnoma\n"
     "• /help — Ushbu qo'llanma va yo'riqnoma\n\n"
     "👇 <b>Batafsil ma'lumot va misollar uchun pastdagi bo'limlarni tanlang:</b>"
+)
+
+VOICE_HELP_TEXT = (
+    "Assalomu alaykum! Men Smart Reminder Bot man, sizning aqlli eslatuvchi yordamchingizman. "
+    "Menga xabaringizni yozma ravishda, ovozli xabar ko'rinishida yoki rasm va hujjat biriktirib yuborishingiz mumkin. "
+    "Sun'iy intellekt xabaringizni tahlil qilib, belgilangan vaqtda sizga eslatadi. "
+    "Shuningdek, har 2 soatda yoki belgilangan intervalda takrorlanuvchi eslatmalar o'rnatishingiz hamda eslatma kelganida uni 15 daqiqa yoki 1 soatga kechiktirishingiz mumkin. "
+    "Barcha eslatmalaringizni kategoriyalar va oylik taqvim orqali qulay boshqarasiz."
 )
 
 HELP_TOPICS = {
@@ -108,9 +117,34 @@ async def cmd_help(message: Message) -> None:
     )
 
 
+async def _send_voice_help(chat_id: int, bot_or_message) -> None:
+    status_msg = await bot_or_message.answer("🎙 Ovozli yo'riqnoma yaratilmoqda...")
+    audio_bytes = await tts_service.text_to_speech_bytes(VOICE_HELP_TEXT)
+    if audio_bytes:
+        voice_file = BufferedInputFile(audio_bytes, filename="voice_help.ogg")
+        await bot_or_message.answer_voice(
+            voice=voice_file,
+            caption="🎧 <b>Smart Reminder Bot — Ovozli Yo'riqnoma</b>",
+            parse_mode="HTML",
+        )
+        await status_msg.delete()
+    else:
+        await status_msg.edit_text("Kechirasiz, ovozli yo'riqnomani yaratishda xatolik yuz berdi.")
+
+
+@router.message(Command("voice_help"))
+async def cmd_voice_help(message: Message) -> None:
+    await _send_voice_help(message.chat.id, message)
+
+
 @router.callback_query(F.data.startswith("help:"))
 async def on_help_topic(callback: CallbackQuery) -> None:
     topic_key = callback.data.split(":", 1)[1]
+    if topic_key == "voice_audio":
+        await _send_voice_help(callback.message.chat.id, callback.message)
+        await callback.answer()
+        return
+
     topic_text = HELP_TOPICS.get(topic_key, HELP_TEXT)
     await callback.message.answer(
         topic_text,

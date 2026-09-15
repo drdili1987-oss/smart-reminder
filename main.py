@@ -22,6 +22,7 @@ async def set_bot_commands(bot: Bot) -> None:
         BotCommand(command="list", description="📋 Barcha faol eslatmalar"),
         BotCommand(command="categories", description="📂 Kategoriyalar bo'yicha saralash"),
         BotCommand(command="calendar", description="📆 Interaktiv taqvim"),
+        BotCommand(command="voice_help", description="🎧 Ovozli yo'riqnoma"),
         BotCommand(command="help", description="💡 Bot imkoniyatlari va qo'llanma"),
     ]
     await bot.set_my_commands(commands)
