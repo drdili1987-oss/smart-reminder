@@ -5,27 +5,71 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery
 
 from config import DEFAULT_TIMEZONE
-from keyboards.inline import timezone_choice_keyboard
+from keyboards.inline import timezone_choice_keyboard, help_topics_keyboard
 from services import firebase_service
 
 logger = logging.getLogger(__name__)
 router = Router(name="start")
 
 HELP_TEXT = (
-    "🤖 <b>Smart Reminder Bot — Aqlli Eslatuvchi Yordamchingiz</b>\n\n"
-    "Menga matn, ovozli xabar yoki rasm yuboring. Men ularni tushunib, belgilangan vaqtda eslataman!\n\n"
-    "<b>Misollar:</b>\n"
-    "• 💬 <i>'Ertaga 15:00 da tish shifokori'</i>\n"
-    "• 🎙 <i>(Ovozli xabar) 'Ertaga 09:00 da yig'ilish'</i>\n"
-    "• 📷 <i>(Rasm/Hujjat izohi bilan) 'Ertaga 10:00 da to'lash'</i>\n"
-    "• 👥 <i>Guruhda botni chaqirib eslatma qo'yishingiz mumkin!</i>\n\n"
-    "<b>Asosiy buyruqlar:</b>\n"
-    "/today — Bugungi eslatmalar\n"
-    "/list — Barcha faol eslatmalar\n"
-    "/categories — Kategoriyalar bo'yicha ko'rish\n"
-    "/calendar — Interaktiv oylik taqvim\n"
-    "/help — Ushbu qo'llanma"
+    "🤖 <b>Smart Reminder Bot — Nimalarga qodir?</b>\n\n"
+    "Bot sizning matnli, ovozli va tasvirli ko'rsatmalaringizni sun'iy intellekt (Gemini AI) yordamida tahlil qiladi hamda o'z vaqtida eslatadi!\n\n"
+    "📌 <b>Asosiy buyruqlar:</b>\n"
+    "• /today — Bugungi eslatmalar\n"
+    "• /list — Barcha faol eslatmalar\n"
+    "• /categories — Kategoriyalar bo'yicha ko'rish\n"
+    "• /calendar — Interaktiv oylik taqvim\n"
+    "• /help — Ushbu qo'llanma va yo'riqnoma\n\n"
+    "👇 <b>Batafsil ma'lumot va misollar uchun pastdagi bo'limlarni tanlang:</b>"
 )
+
+HELP_TOPICS = {
+    "voice": (
+        "🎙 <b>Ovozli xabar orqali eslatma yaratish:</b>\n\n"
+        "Matn yozib o'tirish shart emas! Shunchaki botga ovozli xabar (Voice Note) yuboring.\n\n"
+        "<b>Misollar:</b>\n"
+        "• <i>'Ertaga soat 15:00 da tish shifokoriga borishni eslat'</i>\n"
+        "• <i>'Har kuni kechki soat 20:00 da ingliz tili darsi'</i>\n"
+        "• <i>'Har 2 soatda suv ichishni eslat'</i>\n\n"
+        "⚡️ Bot ovozingizni avtomatik matnga o'giradi va eslatma jadvaliga qo'shadi."
+    ),
+    "files": (
+        "📷 <b>Rasm va Hujjat biriktirish:</b>\n\n"
+        "Retsept rasmi, chipta yoki hujjatni botga yuborib, izoh (caption) sifatida vaqtini yozing.\n\n"
+        "<b>Misol:</b>\n"
+        "• Rasm yuborasiz + izoh: <i>'Ertaga 10:00 da ushbu dorini sotib olish'</i>\n"
+        "• Hujjat yuborasiz + izoh: <i>'Juma kuni 14:00 da ushbu shartnomani topshirish'</i>\n\n"
+        "⚡️ Eslatma vaqti kelganida bot matn bilan birga o'sha rasm/faylni ham yuboradi!"
+    ),
+    "interval": (
+        "⏱ <b>Interval Eslatmalar va Smart Snooze:</b>\n\n"
+        "<b>Interval eslatmalar:</b>\n"
+        "• <i>'Har 2 soatda suv ichish'</i>\n"
+        "• <i>'Har 30 minutda mashq bajarish'</i>\n\n"
+        "<b>Smart Snooze (Kechiktirish):</b>\n"
+        "Eslatma kelganida xabarning ostida <code>[⏰ +15 min]</code>, <code>[⏰ +1 soat]</code>, <code>[⏰ Ertaga shu vaqtda]</code> tugmalari chiqadi."
+    ),
+    "categories": (
+        "📂 <b>Kategoriyalar va Teglar:</b>\n\n"
+        "Bot barcha eslatmalaringizni sun'iy intellekt yordamida avtomatik saralaydi:\n"
+        "• 💼 <b>#ish</b> — Yig'ilish va topshiriqlar\n"
+        "• 🛒 <b>#xarid</b> — Do'kon va bozordan sotib olinadigan narsalar\n"
+        "• 💊 <b>#sogliq</b> — Dori va mashg'ulotlar\n"
+        "• 👤 <b>#shaxsiy</b> — Tug'ilgan kunlar va shaxsiy rejalari\n\n"
+        "Siz <code>/categories</code> buyrug'i orqali ma'lum bir turdagi eslatmalarni saralab ko'rishingiz mumkin."
+    ),
+    "group": (
+        "👥 <b>Guruh va Jamoaviy eslatmalar:</b>\n\n"
+        "Botni ishchi yoki jamoaviy Telegram guruhlariga qo'shishingiz mumkin!\n\n"
+        "Guruhda eslatma yaratilganda bot eslatmani kim yaratganini eslab qoladi va belgilangan vaqtda butun jamoaga eslatadi."
+    ),
+    "calendar": (
+        "📅 <b>Interaktiv Oylik Taqvim:</b>\n\n"
+        "<code>/calendar</code> buyrug'ini yuborsangiz, Telegram ichida oylik tugmali taqvim chiqadi.\n\n"
+        "• Eslatma bor kunlar 🔴 belgisi bilan ajratib ko'rsatiladi.\n"
+        "• Kunning ustiga bosib, o'sha kundagi eslatmalar ro'yxatini ko'rishingiz mumkin."
+    ),
+}
 
 
 @router.message(CommandStart())
@@ -50,10 +94,27 @@ async def on_timezone_chosen(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         f"✅ Vaqt zonangiz {tz_name} qilib belgilandi.\n\n" + HELP_TEXT,
         parse_mode="HTML",
+        reply_markup=help_topics_keyboard(),
     )
     await callback.answer()
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(HELP_TEXT, parse_mode="HTML")
+    await message.answer(
+        HELP_TEXT,
+        parse_mode="HTML",
+        reply_markup=help_topics_keyboard(),
+    )
+
+
+@router.callback_query(F.data.startswith("help:"))
+async def on_help_topic(callback: CallbackQuery) -> None:
+    topic_key = callback.data.split(":", 1)[1]
+    topic_text = HELP_TOPICS.get(topic_key, HELP_TEXT)
+    await callback.message.answer(
+        topic_text,
+        parse_mode="HTML",
+        reply_markup=help_topics_keyboard(),
+    )
+    await callback.answer()

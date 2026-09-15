@@ -59,6 +59,18 @@ def categories_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def help_topics_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🎙 Ovozli eslatmalar", callback_data="help:voice")
+    builder.button(text="📷 Rasm & Fayllar", callback_data="help:files")
+    builder.button(text="⏱ Interval & Snooze", callback_data="help:interval")
+    builder.button(text="📂 Kategoriyalar", callback_data="help:categories")
+    builder.button(text="👥 Guruh eslatmalari", callback_data="help:group")
+    builder.button(text="📅 Interaktiv taqvim", callback_data="help:calendar")
+    builder.adjust(2, 2, 2)
+    return builder.as_markup()
+
+
 def build_calendar_keyboard(year: int, month: int, active_reminders: List[Reminder]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
