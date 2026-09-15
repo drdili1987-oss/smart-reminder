@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 
 from handlers.states import ReminderFlow
-from keyboards.inline import confirm_reminder_keyboard, reminder_list_item_keyboard
+from keyboards.inline import confirm_reminder_keyboard, reminder_list_item_keyboard, categories_keyboard
 from models.reminder import Reminder, ReminderType, ReminderStatus
 from services import firebase_service, scheduler_service
 from services.ai_parser import parse_reminder_text, parse_reminder_audio, parse_reminder_image, AIParseError
@@ -24,6 +24,22 @@ TYPE_LABELS = {
     "yearly": "Har yili",
 }
 
+CATEGORY_EMOJIS = {
+    "ish": "💼",
+    "xarid": "🛒",
+    "sogliq": "💊",
+    "shaxsiy": "👤",
+    "boshqa": "📌",
+}
+
+CATEGORY_LABELS = {
+    "ish": "Ish",
+    "xarid": "Xarid",
+    "sogliq": "Sog'liq",
+    "shaxsiy": "Shaxsiy",
+    "boshqa": "Boshqa",
+}
+
 INVALID_TEXT_REPLY = (
     "Kechirasiz, eslatma vaqti yoki mazmunini aniqlay olmadim. "
     "Masalan: 'Ertaga 10:00 da yig'ilish' deb yozing."
@@ -31,10 +47,14 @@ INVALID_TEXT_REPLY = (
 
 
 def _format_confirmation(reminder: Reminder) -> str:
+    cat_emoji = CATEGORY_EMOJIS.get(reminder.category, "📌")
+    cat_label = CATEGORY_LABELS.get(reminder.category, "Boshqa")
+
     lines = [
         "📝 Quyidagi eslatmani tasdiqlaysizmi?",
         "",
         f"<b>Mazmuni:</b> {reminder.title}",
+        f"<b>Kategoriya:</b> {cat_emoji} {cat_label}",
         f"<b>Turi:</b> {TYPE_LABELS.get(reminder.type.value, reminder.type.value)}",
         f"<b>Sana/vaqt:</b> {reminder.target_datetime.strftime('%d.%m.%Y %H:%M')}",
     ]
@@ -76,7 +96,7 @@ async def cmd_today(message: Message) -> None:
         return
 
     text = "📅 <b>Bugungi eslatmalar:</b>\n\n" + "\n".join(
-        f"• {r.title} — {r.target_datetime.strftime('%H:%M')}" for r in todays
+        f"• {CATEGORY_EMOJIS.get(getattr(r, 'category', 'boshqa'), '📌')} {r.title} — {r.target_datetime.strftime('%H:%M')}" for r in todays
     )
     await message.answer(text, parse_mode="HTML")
 
@@ -90,10 +110,49 @@ async def cmd_list(message: Message) -> None:
 
     await message.answer(f"📋 Sizda {len(reminders)} ta faol eslatma bor:")
     for r in reminders:
-        icon = "📷 " if r.file_type == "photo" else ("📄 " if r.file_type == "document" else "")
-        detail = f"{icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}\n" \
+        cat_emoji = CATEGORY_EMOJIS.get(getattr(r, "category", "boshqa"), "📌")
+        file_icon = "📷 " if r.file_type == "photo" else ("📄 " if r.file_type == "document" else "")
+        detail = f"{cat_emoji} {file_icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}\n" \
                   f"{r.target_datetime.strftime('%d.%m.%Y %H:%M')}"
         await message.answer(detail, reply_markup=reminder_list_item_keyboard(r.reminder_id))
+
+
+@router.message(Command("categories"))
+async def cmd_categories(message: Message) -> None:
+    text = (
+        "📂 <b>Eslatmalar Kategoriyalari:</b>\n\n"
+        "Qaysi turdagi eslatmalaringizni ko'rmoqchisiz? Quyidagi tugmalardan birini tanlang:"
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=categories_keyboard())
+
+
+@router.callback_query(F.data.startswith("cat:"))
+async def on_category_callback(callback: CallbackQuery) -> None:
+    category_key = callback.data.split(":", 1)[1]
+    reminders = await firebase_service.get_active_reminders_for_user(callback.from_user.id)
+
+    if category_key != "all":
+        reminders = [r for r in reminders if getattr(r, "category", "boshqa") == category_key]
+
+    if not reminders:
+        cat_name = CATEGORY_LABELS.get(category_key, "ushbu") if category_key != "all" else "faol"
+        await callback.message.edit_text(
+            f"📋 <b>{cat_name.capitalize()}</b> kategoriyasida faol eslatmalar topilmadi.",
+            parse_mode="HTML",
+            reply_markup=categories_keyboard()
+        )
+        await callback.answer()
+        return
+
+    cat_title = "Barcha eslatmalar" if category_key == "all" else f"{CATEGORY_EMOJIS.get(category_key, '📌')} {CATEGORY_LABELS.get(category_key, category_key)} eslatmalari"
+    await callback.message.edit_text(f"📋 <b>{cat_title} ({len(reminders)} ta):</b>", parse_mode="HTML")
+    for r in reminders:
+        cat_emoji = CATEGORY_EMOJIS.get(getattr(r, "category", "boshqa"), "📌")
+        file_icon = "📷 " if r.file_type == "photo" else ("📄 " if r.file_type == "document" else "")
+        detail = f"{cat_emoji} {file_icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}\n" \
+                 f"{r.target_datetime.strftime('%d.%m.%Y %H:%M')}"
+        await callback.message.answer(detail, reply_markup=reminder_list_item_keyboard(r.reminder_id))
+    await callback.answer()
 
 
 @router.message(StateFilter(None), F.text, ~F.text.startswith("/"))
@@ -132,6 +191,7 @@ async def on_free_text(message: Message, state: FSMContext) -> None:
         day_of_week=parsed.day_of_week,
         day_of_month=parsed.day_of_month,
         timezone=user_tz,
+        category=parsed.category,
     )
 
     try:
@@ -198,6 +258,7 @@ async def on_voice_message(message: Message, state: FSMContext, bot: Bot) -> Non
         day_of_week=parsed.day_of_week,
         day_of_month=parsed.day_of_month,
         timezone=user_tz,
+        category=parsed.category,
     )
 
     try:
@@ -225,7 +286,7 @@ async def on_photo_message(message: Message, state: FSMContext, bot: Bot) -> Non
     status_msg = await message.answer("📷 Rasm tahlil qilinmoqda...")
 
     try:
-        photo = message.photo[-1]  # highest resolution
+        photo = message.photo[-1]
         file = await bot.get_file(photo.file_id)
         file_bytes_io = await bot.download_file(file.file_path)
         image_bytes = file_bytes_io.read()
@@ -267,6 +328,7 @@ async def on_photo_message(message: Message, state: FSMContext, bot: Bot) -> Non
         day_of_week=parsed.day_of_week,
         day_of_month=parsed.day_of_month,
         timezone=user_tz,
+        category=parsed.category,
         file_id=photo.file_id,
         file_type="photo",
     )
@@ -333,6 +395,7 @@ async def on_document_message(message: Message, state: FSMContext, bot: Bot) -> 
         day_of_week=parsed.day_of_week,
         day_of_month=parsed.day_of_month,
         timezone=user_tz,
+        category=parsed.category,
         file_id=message.document.file_id,
         file_type="document",
     )

@@ -35,3 +35,15 @@ def timezone_choice_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="🇷🇺 Moskva (GMT+3)", callback_data="tz:Europe/Moscow")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def categories_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💼 Ish", callback_data="cat:ish")
+    builder.button(text="🛒 Xarid", callback_data="cat:xarid")
+    builder.button(text="💊 Sog'liq", callback_data="cat:sogliq")
+    builder.button(text="👤 Shaxsiy", callback_data="cat:shaxsiy")
+    builder.button(text="📌 Boshqa", callback_data="cat:boshqa")
+    builder.button(text="📋 Barcha eslatmalar", callback_data="cat:all")
+    builder.adjust(2, 2, 2)
+    return builder.as_markup()

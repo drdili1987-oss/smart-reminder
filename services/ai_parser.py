@@ -1,6 +1,6 @@
 """
 Parses free-form Uzbek/Russian/English text, voice messages, or photos into a
-structured reminder using Google Gemini API's JSON response mode and multimodal Vision/Audio parsing.
+structured reminder with automated category tagging using Google Gemini API.
 """
 from __future__ import annotations
 
@@ -20,21 +20,23 @@ logger = logging.getLogger(__name__)
 _client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT_TEMPLATE = (
-    "Siz matn, rasm yoki audio xabardan eslatma tafsilotlarini ajratib oluvchi yordamchisiz. "
+    "Siz matn, rasm yoki audio xabardan eslatma tafsilotlarini ajratib oluvchi va kategoriyalovchi yordamchisiz. "
     "Foydalanuvchining joriy vaqti: {current_time}, vaqt zonasi: {user_timezone}. "
-    "Xabardan/rasmdan eslatma mazmuni, sanasi, vaqti va takrorlanish turini aniqlang "
+    "Xabardan/rasmdan eslatma mazmuni, sanasi, vaqti, takrorlanish turi hamda mos kategoriyasini aniqlang "
     "hamda qat'iy belgilangan JSON formatida qaytaring. "
     "Javobda faqat JSON bo'lsin, hech qanday izoh yoki matn qo'shmang.\n\n"
     "JSON schema:\n"
     "{{\n"
     '  "title": string,\n'
     '  "type": "once" | "daily" | "weekly" | "monthly" | "yearly",\n'
+    '  "category": "ish" | "xarid" | "sogliq" | "shaxsiy" | "boshqa",\n'
     '  "target_datetime": "DD.MM.YYYY HH:MM",\n'
     '  "day_of_week": "monday".."sunday" | null,\n'
     '  "day_of_month": 1-31 | null,\n'
     '  "is_valid": boolean\n'
     "}}\n\n"
     "Qoidalar:\n"
+    "- 'category': Yig'ilish, uchrashuv, topshiriq bo'lsa 'ish'; bozor, do'kon, sotib olish bo'lsa 'xarid'; dori, shifokor, mashg'ulot bo'lsa 'sogliq'; shaxsiy reja, tug'ilgan kun bo'lsa 'shaxsiy'; qolgan hollarda 'boshqa' deb belgilang.\n"
     "- Agar xabar eslatmaga aloqador bo'lmasa yoki vaqt/sana aniqlanmasa, is_valid=false qaytaring.\n"
     "- 'once' uchun target_datetime to'liq sana+vaqt bo'lishi shart.\n"
     "- 'weekly' uchun day_of_week to'ldirilishi shart, target_datetime shu haftadagi eng yaqin mos kunga qo'yiladi.\n"
@@ -52,6 +54,7 @@ class ParsedReminder:
     day_of_week: Optional[str]
     day_of_month: Optional[int]
     is_valid: bool
+    category: str = "boshqa"
 
 
 class AIParseError(Exception):
@@ -110,9 +113,14 @@ async def _generate_parsed_reminder(
             logger.warning("Unparseable target_datetime %r, marking invalid", dt_str)
             is_valid = False
 
+    cat = (data.get("category") or "boshqa").lower()
+    if cat not in ("ish", "xarid", "sogliq", "shaxsiy", "boshqa"):
+        cat = "boshqa"
+
     return ParsedReminder(
         title=(data.get("title") or "").strip(),
         type=data.get("type", "once"),
+        category=cat,
         target_datetime=parsed_dt,
         day_of_week=(data.get("day_of_week") or None),
         day_of_month=data.get("day_of_month"),

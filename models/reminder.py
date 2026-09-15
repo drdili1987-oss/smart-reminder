@@ -42,6 +42,7 @@ class Reminder:
     day_of_month: Optional[int] = None
     status: ReminderStatus = ReminderStatus.ACTIVE
     timezone: str = "Asia/Tashkent"
+    category: str = "boshqa"  # "ish", "xarid", "sogliq", "shaxsiy", "boshqa"
     file_id: Optional[str] = None
     file_type: Optional[str] = None  # "photo" or "document"
     reminder_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -83,6 +84,7 @@ class Reminder:
             day_of_month=data.get("day_of_month"),
             status=ReminderStatus(data.get("status", "active")),
             timezone=data.get("timezone", "Asia/Tashkent"),
+            category=data.get("category", "boshqa"),
             file_id=data.get("file_id"),
             file_type=data.get("file_type"),
             created_at=datetime.fromisoformat(data["created_at"])
