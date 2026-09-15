@@ -117,14 +117,18 @@ async def cmd_help(message: Message) -> None:
     )
 
 
+import time
+
+
 async def _send_voice_help(chat_id: int, bot_or_message) -> None:
     status_msg = await bot_or_message.answer("🎙 Ovozli yo'riqnoma yaratilmoqda...")
-    audio_bytes = await tts_service.text_to_speech_bytes(VOICE_HELP_TEXT)
+    audio_bytes = await tts_service.text_to_speech_bytes(VOICE_HELP_TEXT, pitch="-10Hz", rate="-3%")
     if audio_bytes:
-        voice_file = BufferedInputFile(audio_bytes, filename="voice_help.ogg")
+        filename = f"voice_help_male_{int(time.time())}.ogg"
+        voice_file = BufferedInputFile(audio_bytes, filename=filename)
         await bot_or_message.answer_voice(
             voice=voice_file,
-            caption="🎧 <b>Smart Reminder Bot — Ovozli Yo'riqnoma</b>",
+            caption="🎧 <b>Smart Reminder Bot — Ovozli Yo'riqnoma (Erkak ovozi)</b>",
             parse_mode="HTML",
         )
         await status_msg.delete()
