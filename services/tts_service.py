@@ -4,7 +4,7 @@ import edge_tts
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_VOICE = "uz-UZ-MadinaNeural"
+DEFAULT_VOICE = "uz-UZ-SardorNeural"
 
 
 async def text_to_speech_bytes(text: str, voice: str = DEFAULT_VOICE) -> Optional[bytes]:
