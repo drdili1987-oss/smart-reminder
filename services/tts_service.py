@@ -10,8 +10,8 @@ DEFAULT_VOICE = "uz-UZ-SardorNeural"
 async def text_to_speech_bytes(
     text: str,
     voice: str = DEFAULT_VOICE,
-    pitch: str = "-10Hz",
-    rate: str = "-3%",
+    pitch: str = "+0Hz",
+    rate: str = "+0%",
 ) -> Optional[bytes]:
     """Convert text to speech audio bytes using Microsoft Edge TTS with Uzbek male neural voice."""
     try:

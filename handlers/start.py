@@ -25,11 +25,11 @@ HELP_TEXT = (
 )
 
 VOICE_HELP_TEXT = (
-    "Assalomu alaykum! Men Smart Reminder Bot man, sizning aqlli eslatuvchi yordamchingizman. "
-    "Menga xabaringizni yozma ravishda, ovozli xabar ko'rinishida yoki rasm va hujjat biriktirib yuborishingiz mumkin. "
-    "Sun'iy intellekt xabaringizni tahlil qilib, belgilangan vaqtda sizga eslatadi. "
-    "Shuningdek, har 2 soatda yoki belgilangan intervalda takrorlanuvchi eslatmalar o'rnatishingiz hamda eslatma kelganida uni 15 daqiqa yoki 1 soatga kechiktirishingiz mumkin. "
-    "Barcha eslatmalaringizni kategoriyalar va oylik taqvim orqali qulay boshqarasiz."
+    "Assalomu alaykum! Men Smart Reminder Botman, sizning shaxsiy eslatuvchi yordamchingizman. "
+    "Menga xabaringizni yozib yuborasizmi, ovozli xabar qilasizmi yoki rasm biriktirasizmi — barchasini osongina tushunaman va belgilangan vaqtda eslataman. "
+    "Masalan, 'har 2 soatda suv ichishni eslat' desangiz, intervalli eslatma qo'yib beraman. "
+    "Eslatma kelganida esa, uni 15 daqiqa yoki 1 soatga kechiktirish tugmalaridan foydalanishingiz mumkin. "
+    "Barcha rejalaringizni kategoriyalar hamda taqvim bo'limida qulay ko'rishingiz mumkin."
 )
 
 HELP_TOPICS = {
@@ -122,9 +122,9 @@ import time
 
 async def _send_voice_help(chat_id: int, bot_or_message) -> None:
     status_msg = await bot_or_message.answer("🎙 Ovozli yo'riqnoma yaratilmoqda...")
-    audio_bytes = await tts_service.text_to_speech_bytes(VOICE_HELP_TEXT, pitch="-10Hz", rate="-3%")
+    audio_bytes = await tts_service.text_to_speech_bytes(VOICE_HELP_TEXT)
     if audio_bytes:
-        filename = f"voice_help_male_{int(time.time())}.ogg"
+        filename = f"voice_help_male_natural_{int(time.time())}.ogg"
         voice_file = BufferedInputFile(audio_bytes, filename=filename)
         await bot_or_message.answer_voice(
             voice=voice_file,
