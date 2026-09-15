@@ -69,7 +69,8 @@ async def _fire_notification(bot: Bot, reminder_id: str) -> None:
         remove_job(reminder_id)
         return
 
-    text = f"⏰ <b>Eslatma:</b> {reminder.title}"
+    creator_info = f"\n👤 <i>Yaratdi: {reminder.creator_name}</i>" if reminder.creator_name else ""
+    text = f"⏰ <b>Eslatma:</b> {reminder.title}{creator_info}"
     markup = notification_keyboard(reminder.reminder_id, reminder.type.value)
 
     try:

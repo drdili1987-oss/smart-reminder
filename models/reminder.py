@@ -45,6 +45,7 @@ class Reminder:
     category: str = "boshqa"  # "ish", "xarid", "sogliq", "shaxsiy", "boshqa"
     file_id: Optional[str] = None
     file_type: Optional[str] = None  # "photo" or "document"
+    creator_name: Optional[str] = None
     reminder_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: datetime = field(default_factory=datetime.utcnow)
 
@@ -87,6 +88,7 @@ class Reminder:
             category=data.get("category", "boshqa"),
             file_id=data.get("file_id"),
             file_type=data.get("file_type"),
+            creator_name=data.get("creator_name"),
             created_at=datetime.fromisoformat(data["created_at"])
             if isinstance(data.get("created_at"), str) else datetime.utcnow(),
         )

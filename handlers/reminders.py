@@ -69,6 +69,9 @@ def _format_confirmation(reminder: Reminder) -> str:
         f"<b>Turi:</b> {TYPE_LABELS.get(reminder.type.value, reminder.type.value)}",
         f"<b>Sana/vaqt:</b> {reminder.target_datetime.strftime('%d.%m.%Y %H:%M')}",
     ]
+    if reminder.creator_name:
+        lines.append(f"👤 <b>Yaratuvchi:</b> {reminder.creator_name}")
+
     if reminder.file_type == "photo":
         lines.append("📷 <b>Biriktirilgan fayl:</b> Rasm")
     elif reminder.file_type == "document":
@@ -83,9 +86,9 @@ def _format_confirmation(reminder: Reminder) -> str:
 
 @router.message(Command("today"))
 async def cmd_today(message: Message) -> None:
-    user_tz = await firebase_service.get_user_timezone(message.from_user.id)
+    user_tz = await firebase_service.get_user_timezone(message.chat.id)
     today = now_in_tz(user_tz)
-    reminders = await firebase_service.get_active_reminders_for_user(message.from_user.id)
+    reminders = await firebase_service.get_active_reminders_for_user(message.chat.id)
 
     todays = []
     for r in reminders:
@@ -114,7 +117,7 @@ async def cmd_today(message: Message) -> None:
 
 @router.message(Command("list"))
 async def cmd_list(message: Message) -> None:
-    reminders = await firebase_service.get_active_reminders_for_user(message.from_user.id)
+    reminders = await firebase_service.get_active_reminders_for_user(message.chat.id)
     if not reminders:
         await message.answer("Sizda faol eslatmalar yo'q.")
         return
@@ -123,7 +126,8 @@ async def cmd_list(message: Message) -> None:
     for r in reminders:
         cat_emoji = CATEGORY_EMOJIS.get(getattr(r, "category", "boshqa"), "📌")
         file_icon = "📷 " if r.file_type == "photo" else ("📄 " if r.file_type == "document" else "")
-        detail = f"{cat_emoji} {file_icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}\n" \
+        creator_str = f" (👤 {r.creator_name})" if r.creator_name else ""
+        detail = f"{cat_emoji} {file_icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}{creator_str}\n" \
                   f"{r.target_datetime.strftime('%d.%m.%Y %H:%M')}"
         await message.answer(detail, reply_markup=reminder_list_item_keyboard(r.reminder_id))
 
@@ -139,9 +143,9 @@ async def cmd_categories(message: Message) -> None:
 
 @router.message(Command("calendar"))
 async def cmd_calendar(message: Message) -> None:
-    user_tz = await firebase_service.get_user_timezone(message.from_user.id)
+    user_tz = await firebase_service.get_user_timezone(message.chat.id)
     now = now_in_tz(user_tz)
-    reminders = await firebase_service.get_active_reminders_for_user(message.from_user.id)
+    reminders = await firebase_service.get_active_reminders_for_user(message.chat.id)
     keyboard = build_calendar_keyboard(now.year, now.month, reminders)
 
     text = (
@@ -161,7 +165,7 @@ async def on_calendar_ignore(callback: CallbackQuery) -> None:
 async def on_calendar_nav(callback: CallbackQuery) -> None:
     parts = callback.data.split(":")
     year, month = int(parts[2]), int(parts[3])
-    reminders = await firebase_service.get_active_reminders_for_user(callback.from_user.id)
+    reminders = await firebase_service.get_active_reminders_for_user(callback.message.chat.id)
     keyboard = build_calendar_keyboard(year, month, reminders)
 
     text = (
@@ -179,7 +183,7 @@ async def on_calendar_day(callback: CallbackQuery) -> None:
     year, month, day = int(parts[2]), int(parts[3]), int(parts[4])
     target_date = date(year, month, day)
 
-    reminders = await firebase_service.get_active_reminders_for_user(callback.from_user.id)
+    reminders = await firebase_service.get_active_reminders_for_user(callback.message.chat.id)
     day_reminders = []
 
     for r in reminders:
@@ -218,7 +222,8 @@ async def on_calendar_day(callback: CallbackQuery) -> None:
     for r in day_reminders:
         cat_emoji = CATEGORY_EMOJIS.get(getattr(r, "category", "boshqa"), "📌")
         file_icon = "📷 " if r.file_type == "photo" else ("📄 " if r.file_type == "document" else "")
-        detail = f"{cat_emoji} {file_icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}\n" \
+        creator_str = f" (👤 {r.creator_name})" if r.creator_name else ""
+        detail = f"{cat_emoji} {file_icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}{creator_str}\n" \
                  f"{r.target_datetime.strftime('%d.%m.%Y %H:%M')}"
         await callback.message.answer(detail, reply_markup=reminder_list_item_keyboard(r.reminder_id))
 
@@ -229,7 +234,7 @@ async def on_calendar_day(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("cat:"))
 async def on_category_callback(callback: CallbackQuery) -> None:
     category_key = callback.data.split(":", 1)[1]
-    reminders = await firebase_service.get_active_reminders_for_user(callback.from_user.id)
+    reminders = await firebase_service.get_active_reminders_for_user(callback.message.chat.id)
 
     if category_key != "all":
         reminders = [r for r in reminders if getattr(r, "category", "boshqa") == category_key]
@@ -249,7 +254,8 @@ async def on_category_callback(callback: CallbackQuery) -> None:
     for r in reminders:
         cat_emoji = CATEGORY_EMOJIS.get(getattr(r, "category", "boshqa"), "📌")
         file_icon = "📷 " if r.file_type == "photo" else ("📄 " if r.file_type == "document" else "")
-        detail = f"{cat_emoji} {file_icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}\n" \
+        creator_str = f" (👤 {r.creator_name})" if r.creator_name else ""
+        detail = f"{cat_emoji} {file_icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}{creator_str}\n" \
                  f"{r.target_datetime.strftime('%d.%m.%Y %H:%M')}"
         await callback.message.answer(detail, reply_markup=reminder_list_item_keyboard(r.reminder_id))
     await callback.answer()
@@ -257,7 +263,7 @@ async def on_category_callback(callback: CallbackQuery) -> None:
 
 @router.message(StateFilter(None), F.text, ~F.text.startswith("/"))
 async def on_free_text(message: Message, state: FSMContext) -> None:
-    user_tz = await firebase_service.get_user_timezone(message.from_user.id)
+    user_tz = await firebase_service.get_user_timezone(message.chat.id)
     reference_now = now_in_tz(user_tz)
 
     try:
@@ -283,8 +289,10 @@ async def on_free_text(message: Message, state: FSMContext) -> None:
     if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
         target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
 
+    creator = message.from_user.full_name if message.from_user else None
+
     reminder = Reminder(
-        user_id=message.from_user.id,
+        user_id=message.chat.id,
         title=parsed.title,
         type=reminder_type,
         target_datetime=target_dt,
@@ -292,6 +300,7 @@ async def on_free_text(message: Message, state: FSMContext) -> None:
         day_of_month=parsed.day_of_month,
         timezone=user_tz,
         category=parsed.category,
+        creator_name=creator,
     )
 
     try:
@@ -312,7 +321,7 @@ async def on_free_text(message: Message, state: FSMContext) -> None:
 
 @router.message(StateFilter(None), F.voice)
 async def on_voice_message(message: Message, state: FSMContext, bot: Bot) -> None:
-    user_tz = await firebase_service.get_user_timezone(message.from_user.id)
+    user_tz = await firebase_service.get_user_timezone(message.chat.id)
     reference_now = now_in_tz(user_tz)
 
     status_msg = await message.answer("🎙 Ovozli xabar tahlil qilinmoqda...")
@@ -350,8 +359,10 @@ async def on_voice_message(message: Message, state: FSMContext, bot: Bot) -> Non
     if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
         target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
 
+    creator = message.from_user.full_name if message.from_user else None
+
     reminder = Reminder(
-        user_id=message.from_user.id,
+        user_id=message.chat.id,
         title=parsed.title,
         type=reminder_type,
         target_datetime=target_dt,
@@ -359,6 +370,7 @@ async def on_voice_message(message: Message, state: FSMContext, bot: Bot) -> Non
         day_of_month=parsed.day_of_month,
         timezone=user_tz,
         category=parsed.category,
+        creator_name=creator,
     )
 
     try:
@@ -379,7 +391,7 @@ async def on_voice_message(message: Message, state: FSMContext, bot: Bot) -> Non
 
 @router.message(StateFilter(None), F.photo)
 async def on_photo_message(message: Message, state: FSMContext, bot: Bot) -> None:
-    user_tz = await firebase_service.get_user_timezone(message.from_user.id)
+    user_tz = await firebase_service.get_user_timezone(message.chat.id)
     reference_now = now_in_tz(user_tz)
     caption = message.caption or ""
 
@@ -420,8 +432,10 @@ async def on_photo_message(message: Message, state: FSMContext, bot: Bot) -> Non
     if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
         target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
 
+    creator = message.from_user.full_name if message.from_user else None
+
     reminder = Reminder(
-        user_id=message.from_user.id,
+        user_id=message.chat.id,
         title=parsed.title,
         type=reminder_type,
         target_datetime=target_dt,
@@ -431,6 +445,7 @@ async def on_photo_message(message: Message, state: FSMContext, bot: Bot) -> Non
         category=parsed.category,
         file_id=photo.file_id,
         file_type="photo",
+        creator_name=creator,
     )
 
     try:
@@ -451,7 +466,7 @@ async def on_photo_message(message: Message, state: FSMContext, bot: Bot) -> Non
 
 @router.message(StateFilter(None), F.document)
 async def on_document_message(message: Message, state: FSMContext, bot: Bot) -> None:
-    user_tz = await firebase_service.get_user_timezone(message.from_user.id)
+    user_tz = await firebase_service.get_user_timezone(message.chat.id)
     reference_now = now_in_tz(user_tz)
     caption = message.caption or ""
 
@@ -487,8 +502,10 @@ async def on_document_message(message: Message, state: FSMContext, bot: Bot) -> 
     if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
         target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
 
+    creator = message.from_user.full_name if message.from_user else None
+
     reminder = Reminder(
-        user_id=message.from_user.id,
+        user_id=message.chat.id,
         title=parsed.title,
         type=reminder_type,
         target_datetime=target_dt,
@@ -498,6 +515,7 @@ async def on_document_message(message: Message, state: FSMContext, bot: Bot) -> 
         category=parsed.category,
         file_id=message.document.file_id,
         file_type="document",
+        creator_name=creator,
     )
 
     try:

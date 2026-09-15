@@ -12,17 +12,18 @@ logger = logging.getLogger(__name__)
 router = Router(name="start")
 
 HELP_TEXT = (
-    "🤖 <b>Smart Reminder Bot</b>\n\n"
-    "Menga oddiy tilda eslatma yozing, men uni tushunib, o'z vaqtida eslataman.\n\n"
+    "🤖 <b>Smart Reminder Bot — Aqlli Eslatuvchi Yordamchingiz</b>\n\n"
+    "Menga matn, ovozli xabar yoki rasm yuboring. Men ularni tushunib, belgilangan vaqtda eslataman!\n\n"
     "<b>Misollar:</b>\n"
-    "• Ertaga 15:00 da tish shifokori\n"
-    "• Har kuni 07:00 da dori ichish\n"
-    "• Har dushanba 09:00 da yig'ilish\n"
-    "• Har oyning 5-sanasida ijarani to'lash\n"
-    "• Har yili 21-mart kuni bayram tabrigi\n\n"
-    "<b>Buyruqlar:</b>\n"
+    "• 💬 <i>'Ertaga 15:00 da tish shifokori'</i>\n"
+    "• 🎙 <i>(Ovozli xabar) 'Ertaga 09:00 da yig'ilish'</i>\n"
+    "• 📷 <i>(Rasm/Hujjat izohi bilan) 'Ertaga 10:00 da to'lash'</i>\n"
+    "• 👥 <i>Guruhda botni chaqirib eslatma qo'yishingiz mumkin!</i>\n\n"
+    "<b>Asosiy buyruqlar:</b>\n"
     "/today — Bugungi eslatmalar\n"
     "/list — Barcha faol eslatmalar\n"
+    "/categories — Kategoriyalar bo'yicha ko'rish\n"
+    "/calendar — Interaktiv oylik taqvim\n"
     "/help — Ushbu qo'llanma"
 )
 
