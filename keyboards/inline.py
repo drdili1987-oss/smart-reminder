@@ -25,12 +25,10 @@ def confirm_reminder_keyboard() -> InlineKeyboardMarkup:
 def notification_keyboard(reminder_id: str, reminder_type: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ Bajarildi", callback_data=f"done:{reminder_id}")
-    if reminder_type == "once":
-        builder.button(text="⏰ +15 daqiqa", callback_data=f"snooze15:{reminder_id}")
-        builder.button(text="⏰ +1 soat", callback_data=f"snooze60:{reminder_id}")
-        builder.adjust(1, 2)
-    else:
-        builder.adjust(1)
+    builder.button(text="⏰ +15 min", callback_data=f"snooze15:{reminder_id}")
+    builder.button(text="⏰ +1 soat", callback_data=f"snooze60:{reminder_id}")
+    builder.button(text="⏰ Ertaga shu vaqtda", callback_data=f"snooze1440:{reminder_id}")
+    builder.adjust(1, 2, 1)
     return builder.as_markup()
 
 
@@ -84,7 +82,7 @@ def build_calendar_keyboard(year: int, month: int, active_reminders: List[Remind
 
     for r in active_reminders:
         dt = r.target_datetime
-        if r.type == ReminderType.ONCE:
+        if r.type in (ReminderType.ONCE, ReminderType.INTERVAL):
             if dt.year == year and dt.month == month:
                 reminder_days.add(dt.day)
         elif r.type == ReminderType.DAILY:

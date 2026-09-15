@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+from typing import Optional
 
 from aiogram import Router, F, Bot
 from aiogram.filters import Command, StateFilter
@@ -33,6 +34,7 @@ TYPE_LABELS = {
     "weekly": "Har hafta",
     "monthly": "Har oy",
     "yearly": "Har yili",
+    "interval": "Interval",
 }
 
 CATEGORY_EMOJIS = {
@@ -81,7 +83,70 @@ def _format_confirmation(reminder: Reminder) -> str:
         lines.append(f"<b>Kun:</b> {reminder.day_of_week}")
     if reminder.type == ReminderType.MONTHLY:
         lines.append(f"<b>Har oyning:</b> {reminder.day_of_month}-sanasi")
+    if reminder.type == ReminderType.INTERVAL and reminder.interval_minutes:
+        if reminder.interval_minutes >= 60 and reminder.interval_minutes % 60 == 0:
+            interval_str = f"Har {reminder.interval_minutes // 60} soatda"
+        else:
+            interval_str = f"Har {reminder.interval_minutes} daqiqada"
+        lines.append(f"<b>Interval:</b> {interval_str}")
+
     return "\n".join(lines)
+
+
+def _build_reminder_from_parsed(
+    parsed,
+    user_id: int,
+    reference_now: datetime,
+    user_tz: str,
+    creator_name: Optional[str] = None,
+    file_id: Optional[str] = None,
+    file_type: Optional[str] = None,
+) -> tuple[Optional[Reminder], str]:
+    if not parsed.is_valid:
+        return None, INVALID_TEXT_REPLY
+
+    try:
+        reminder_type = ReminderType(parsed.type)
+    except ValueError:
+        return None, INVALID_TEXT_REPLY
+
+    if reminder_type == ReminderType.INTERVAL:
+        if not parsed.interval_minutes or parsed.interval_minutes <= 0:
+            parsed.interval_minutes = 60
+        ref_naive = reference_now.replace(tzinfo=None) if reference_now.tzinfo else reference_now
+        if parsed.target_datetime is None or parsed.target_datetime <= ref_naive:
+            parsed.target_datetime = ref_naive + timedelta(minutes=parsed.interval_minutes)
+
+    if parsed.target_datetime is None:
+        return None, INVALID_TEXT_REPLY
+
+    target_dt = localize(parsed.target_datetime, user_tz)
+
+    if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
+        target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
+
+    reminder = Reminder(
+        user_id=user_id,
+        title=parsed.title,
+        type=reminder_type,
+        target_datetime=target_dt,
+        day_of_week=parsed.day_of_week,
+        day_of_month=parsed.day_of_month,
+        interval_minutes=parsed.interval_minutes,
+        timezone=user_tz,
+        category=parsed.category,
+        file_id=file_id,
+        file_type=file_type,
+        creator_name=creator_name,
+    )
+
+    try:
+        reminder.validate()
+    except ValueError as exc:
+        logger.warning("AI output failed validation: %s", exc)
+        return None, INVALID_TEXT_REPLY
+
+    return reminder, ""
 
 
 @router.message(Command("today"))
@@ -94,7 +159,7 @@ async def cmd_today(message: Message) -> None:
     for r in reminders:
         if r.type == ReminderType.ONCE and r.target_datetime.date() == today.date():
             todays.append(r)
-        elif r.type == ReminderType.DAILY:
+        elif r.type in (ReminderType.DAILY, ReminderType.INTERVAL):
             todays.append(r)
         elif r.type == ReminderType.WEEKLY and r.day_of_week and \
                 r.day_of_week.lower() == today.strftime("%A").lower():
@@ -190,7 +255,7 @@ async def on_calendar_day(callback: CallbackQuery) -> None:
         dt = r.target_datetime
         if r.type == ReminderType.ONCE and dt.date() == target_date:
             day_reminders.append(r)
-        elif r.type == ReminderType.DAILY:
+        elif r.type in (ReminderType.DAILY, ReminderType.INTERVAL):
             day_reminders.append(r)
         elif r.type == ReminderType.WEEKLY and r.day_of_week and \
                 r.day_of_week.lower() == target_date.strftime("%A").lower():
@@ -274,40 +339,17 @@ async def on_free_text(message: Message, state: FSMContext) -> None:
         )
         return
 
-    if not parsed.is_valid or parsed.target_datetime is None:
-        await message.answer(INVALID_TEXT_REPLY)
-        return
-
-    try:
-        reminder_type = ReminderType(parsed.type)
-    except ValueError:
-        await message.answer(INVALID_TEXT_REPLY)
-        return
-
-    target_dt = localize(parsed.target_datetime, user_tz)
-
-    if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
-        target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
-
     creator = message.from_user.full_name if message.from_user else None
-
-    reminder = Reminder(
+    reminder, err_msg = _build_reminder_from_parsed(
+        parsed=parsed,
         user_id=message.chat.id,
-        title=parsed.title,
-        type=reminder_type,
-        target_datetime=target_dt,
-        day_of_week=parsed.day_of_week,
-        day_of_month=parsed.day_of_month,
-        timezone=user_tz,
-        category=parsed.category,
+        reference_now=reference_now,
+        user_tz=user_tz,
         creator_name=creator,
     )
 
-    try:
-        reminder.validate()
-    except ValueError as exc:
-        logger.warning("AI output failed validation: %s", exc)
-        await message.answer(INVALID_TEXT_REPLY)
+    if reminder is None:
+        await message.answer(err_msg)
         return
 
     await state.update_data(pending_reminder=reminder)
@@ -344,40 +386,17 @@ async def on_voice_message(message: Message, state: FSMContext, bot: Bot) -> Non
         )
         return
 
-    if not parsed.is_valid or parsed.target_datetime is None:
-        await status_msg.edit_text(INVALID_TEXT_REPLY)
-        return
-
-    try:
-        reminder_type = ReminderType(parsed.type)
-    except ValueError:
-        await status_msg.edit_text(INVALID_TEXT_REPLY)
-        return
-
-    target_dt = localize(parsed.target_datetime, user_tz)
-
-    if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
-        target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
-
     creator = message.from_user.full_name if message.from_user else None
-
-    reminder = Reminder(
+    reminder, err_msg = _build_reminder_from_parsed(
+        parsed=parsed,
         user_id=message.chat.id,
-        title=parsed.title,
-        type=reminder_type,
-        target_datetime=target_dt,
-        day_of_week=parsed.day_of_week,
-        day_of_month=parsed.day_of_month,
-        timezone=user_tz,
-        category=parsed.category,
+        reference_now=reference_now,
+        user_tz=user_tz,
         creator_name=creator,
     )
 
-    try:
-        reminder.validate()
-    except ValueError as exc:
-        logger.warning("AI output failed validation: %s", exc)
-        await status_msg.edit_text(INVALID_TEXT_REPLY)
+    if reminder is None:
+        await status_msg.edit_text(err_msg)
         return
 
     await state.update_data(pending_reminder=reminder)
@@ -417,42 +436,19 @@ async def on_photo_message(message: Message, state: FSMContext, bot: Bot) -> Non
         )
         return
 
-    if not parsed.is_valid or parsed.target_datetime is None:
-        await status_msg.edit_text(INVALID_TEXT_REPLY)
-        return
-
-    try:
-        reminder_type = ReminderType(parsed.type)
-    except ValueError:
-        await status_msg.edit_text(INVALID_TEXT_REPLY)
-        return
-
-    target_dt = localize(parsed.target_datetime, user_tz)
-
-    if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
-        target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
-
     creator = message.from_user.full_name if message.from_user else None
-
-    reminder = Reminder(
+    reminder, err_msg = _build_reminder_from_parsed(
+        parsed=parsed,
         user_id=message.chat.id,
-        title=parsed.title,
-        type=reminder_type,
-        target_datetime=target_dt,
-        day_of_week=parsed.day_of_week,
-        day_of_month=parsed.day_of_month,
-        timezone=user_tz,
-        category=parsed.category,
+        reference_now=reference_now,
+        user_tz=user_tz,
+        creator_name=creator,
         file_id=photo.file_id,
         file_type="photo",
-        creator_name=creator,
     )
 
-    try:
-        reminder.validate()
-    except ValueError as exc:
-        logger.warning("AI output failed validation: %s", exc)
-        await status_msg.edit_text(INVALID_TEXT_REPLY)
+    if reminder is None:
+        await status_msg.edit_text(err_msg)
         return
 
     await state.update_data(pending_reminder=reminder)
@@ -487,42 +483,19 @@ async def on_document_message(message: Message, state: FSMContext, bot: Bot) -> 
         await status_msg.edit_text(INVALID_TEXT_REPLY)
         return
 
-    if not parsed.is_valid or parsed.target_datetime is None:
-        await status_msg.edit_text(INVALID_TEXT_REPLY)
-        return
-
-    try:
-        reminder_type = ReminderType(parsed.type)
-    except ValueError:
-        await status_msg.edit_text(INVALID_TEXT_REPLY)
-        return
-
-    target_dt = localize(parsed.target_datetime, user_tz)
-
-    if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
-        target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
-
     creator = message.from_user.full_name if message.from_user else None
-
-    reminder = Reminder(
+    reminder, err_msg = _build_reminder_from_parsed(
+        parsed=parsed,
         user_id=message.chat.id,
-        title=parsed.title,
-        type=reminder_type,
-        target_datetime=target_dt,
-        day_of_week=parsed.day_of_week,
-        day_of_month=parsed.day_of_month,
-        timezone=user_tz,
-        category=parsed.category,
+        reference_now=reference_now,
+        user_tz=user_tz,
+        creator_name=creator,
         file_id=message.document.file_id,
         file_type="document",
-        creator_name=creator,
     )
 
-    try:
-        reminder.validate()
-    except ValueError as exc:
-        logger.warning("AI output failed validation: %s", exc)
-        await status_msg.edit_text(INVALID_TEXT_REPLY)
+    if reminder is None:
+        await status_msg.edit_text(err_msg)
         return
 
     await state.update_data(pending_reminder=reminder)

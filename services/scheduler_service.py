@@ -7,6 +7,7 @@ from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from models.reminder import Reminder, ReminderType
 from keyboards.inline import notification_keyboard
@@ -40,6 +41,8 @@ def _build_trigger(reminder: Reminder):
         return CronTrigger(day=reminder.day_of_month, hour=hour, minute=minute, timezone=tz)
     if reminder.type == ReminderType.YEARLY:
         return CronTrigger(month=dt.month, day=dt.day, hour=hour, minute=minute, timezone=tz)
+    if reminder.type == ReminderType.INTERVAL:
+        return IntervalTrigger(minutes=reminder.interval_minutes, timezone=tz, start_date=dt)
 
     raise ValueError(f"Unsupported reminder type: {reminder.type}")
 

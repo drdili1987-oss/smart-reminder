@@ -13,6 +13,7 @@ class ReminderType(str, Enum):
     WEEKLY = "weekly"
     MONTHLY = "monthly"
     YEARLY = "yearly"
+    INTERVAL = "interval"
 
 
 class ReminderStatus(str, Enum):
@@ -40,6 +41,7 @@ class Reminder:
     target_datetime: datetime  # timezone-aware, in the user's tz
     day_of_week: Optional[str] = None
     day_of_month: Optional[int] = None
+    interval_minutes: Optional[int] = None
     status: ReminderStatus = ReminderStatus.ACTIVE
     timezone: str = "Asia/Tashkent"
     category: str = "boshqa"  # "ish", "xarid", "sogliq", "shaxsiy", "boshqa"
@@ -62,6 +64,10 @@ class Reminder:
             if self.day_of_month is None or not (1 <= self.day_of_month <= 31):
                 raise ValueError(f"invalid day_of_month for monthly reminder: {self.day_of_month!r}")
 
+        if self.type == ReminderType.INTERVAL:
+            if not self.interval_minutes or self.interval_minutes <= 0:
+                raise ValueError(f"invalid interval_minutes: {self.interval_minutes!r}")
+
         if self.target_datetime.tzinfo is None:
             raise ValueError("target_datetime must be timezone-aware")
 
@@ -83,6 +89,7 @@ class Reminder:
             target_datetime=datetime.fromisoformat(data["target_datetime"]),
             day_of_week=data.get("day_of_week"),
             day_of_month=data.get("day_of_month"),
+            interval_minutes=data.get("interval_minutes"),
             status=ReminderStatus(data.get("status", "active")),
             timezone=data.get("timezone", "Asia/Tashkent"),
             category=data.get("category", "boshqa"),

@@ -28,11 +28,12 @@ SYSTEM_PROMPT_TEMPLATE = (
     "JSON schema:\n"
     "{{\n"
     '  "title": string,\n'
-    '  "type": "once" | "daily" | "weekly" | "monthly" | "yearly",\n'
+    '  "type": "once" | "daily" | "weekly" | "monthly" | "yearly" | "interval",\n'
     '  "category": "ish" | "xarid" | "sogliq" | "shaxsiy" | "boshqa",\n'
     '  "target_datetime": "DD.MM.YYYY HH:MM",\n'
     '  "day_of_week": "monday".."sunday" | null,\n'
     '  "day_of_month": 1-31 | null,\n'
+    '  "interval_minutes": number | null,\n'
     '  "is_valid": boolean\n'
     "}}\n\n"
     "Qoidalar:\n"
@@ -42,6 +43,7 @@ SYSTEM_PROMPT_TEMPLATE = (
     "- 'weekly' uchun day_of_week to'ldirilishi shart, target_datetime shu haftadagi eng yaqin mos kunga qo'yiladi.\n"
     "- 'monthly' uchun day_of_month to'ldirilishi shart.\n"
     "- 'daily'/'yearly' uchun faqat vaqt (va yearly uchun oy/kun ham) muhim.\n"
+    "- 'interval' uchun interval_minutes minutlarda bo'ladi (masalan: 'har 2 soatda' -> 120, 'har 30 minutda' -> 30). target_datetime esa birinchi eslatma vaqti bo'ladi.\n"
     "- Javobdagi barcha sana/vaqtlar foydalanuvchi vaqt zonasida bo'lishi kerak."
 )
 
@@ -55,6 +57,7 @@ class ParsedReminder:
     day_of_month: Optional[int]
     is_valid: bool
     category: str = "boshqa"
+    interval_minutes: Optional[int] = None
 
 
 class AIParseError(Exception):
@@ -117,6 +120,13 @@ async def _generate_parsed_reminder(
     if cat not in ("ish", "xarid", "sogliq", "shaxsiy", "boshqa"):
         cat = "boshqa"
 
+    interval_mins = data.get("interval_minutes")
+    if interval_mins is not None:
+        try:
+            interval_mins = int(interval_mins)
+        except (ValueError, TypeError):
+            interval_mins = None
+
     return ParsedReminder(
         title=(data.get("title") or "").strip(),
         type=data.get("type", "once"),
@@ -124,6 +134,7 @@ async def _generate_parsed_reminder(
         target_datetime=parsed_dt,
         day_of_week=(data.get("day_of_week") or None),
         day_of_month=data.get("day_of_month"),
+        interval_minutes=interval_mins,
         is_valid=is_valid and bool(data.get("title")),
     )
 

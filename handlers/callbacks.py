@@ -42,18 +42,21 @@ async def _snooze(callback: CallbackQuery, bot: Bot, minutes: int) -> None:
         await callback.answer("Eslatma topilmadi.", show_alert=True)
         return
 
-    if reminder.type != ReminderType.ONCE:
-        await callback.answer("Kechiktirish faqat bir martalik eslatmalar uchun mavjud.", show_alert=True)
-        return
-
     new_dt = now_in_tz(reminder.timezone) + timedelta(minutes=minutes)
     reminder.target_datetime = new_dt
 
     await firebase_service.update_reminder_target_datetime(reminder_id, new_dt)
     scheduler_service.schedule_reminder(bot, reminder)
 
+    if minutes >= 1440:
+        time_str = f"{minutes // 1440} kunga"
+    elif minutes >= 60:
+        time_str = f"{minutes // 60} soatga"
+    else:
+        time_str = f"{minutes} daqiqaga"
+
     await callback.message.edit_text(
-        f"⏰ Eslatma {minutes} daqiqaga kechiktirildi: {reminder.title}\n"
+        f"⏰ Eslatma {time_str} kechiktirildi: {reminder.title}\n"
         f"Yangi vaqt: {new_dt.strftime('%d.%m.%Y %H:%M')}"
     )
     await callback.answer()
@@ -67,3 +70,8 @@ async def on_snooze15(callback: CallbackQuery, bot: Bot) -> None:
 @router.callback_query(F.data.startswith("snooze60:"))
 async def on_snooze60(callback: CallbackQuery, bot: Bot) -> None:
     await _snooze(callback, bot, 60)
+
+
+@router.callback_query(F.data.startswith("snooze1440:"))
+async def on_snooze1440(callback: CallbackQuery, bot: Bot) -> None:
+    await _snooze(callback, bot, 1440)
