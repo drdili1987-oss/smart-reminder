@@ -1,16 +1,27 @@
 import logging
-from datetime import datetime
+from datetime import datetime, date
 
 from aiogram import Router, F, Bot
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from handlers.states import ReminderFlow
-from keyboards.inline import confirm_reminder_keyboard, reminder_list_item_keyboard, categories_keyboard
+from keyboards.inline import (
+    confirm_reminder_keyboard,
+    reminder_list_item_keyboard,
+    categories_keyboard,
+    build_calendar_keyboard,
+)
 from models.reminder import Reminder, ReminderType, ReminderStatus
 from services import firebase_service, scheduler_service
-from services.ai_parser import parse_reminder_text, parse_reminder_audio, parse_reminder_image, AIParseError
+from services.ai_parser import (
+    parse_reminder_text,
+    parse_reminder_audio,
+    parse_reminder_image,
+    AIParseError,
+)
 from utils.timezones import now_in_tz, localize, ensure_weekly_consistency
 
 logger = logging.getLogger(__name__)
@@ -124,6 +135,95 @@ async def cmd_categories(message: Message) -> None:
         "Qaysi turdagi eslatmalaringizni ko'rmoqchisiz? Quyidagi tugmalardan birini tanlang:"
     )
     await message.answer(text, parse_mode="HTML", reply_markup=categories_keyboard())
+
+
+@router.message(Command("calendar"))
+async def cmd_calendar(message: Message) -> None:
+    user_tz = await firebase_service.get_user_timezone(message.from_user.id)
+    now = now_in_tz(user_tz)
+    reminders = await firebase_service.get_active_reminders_for_user(message.from_user.id)
+    keyboard = build_calendar_keyboard(now.year, now.month, reminders)
+
+    text = (
+        "📅 <b>Interaktiv Taqvim:</b>\n\n"
+        "Eslatmalar bor kunlar 🔴 belgisi bilan ajratilgan.\n"
+        "Kunning ustiga bosib, o'sha kundagi eslatmalarni ko'rishingiz mumkin:"
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+@router.callback_query(F.data == "cal:ignore")
+async def on_calendar_ignore(callback: CallbackQuery) -> None:
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cal:nav:"))
+async def on_calendar_nav(callback: CallbackQuery) -> None:
+    parts = callback.data.split(":")
+    year, month = int(parts[2]), int(parts[3])
+    reminders = await firebase_service.get_active_reminders_for_user(callback.from_user.id)
+    keyboard = build_calendar_keyboard(year, month, reminders)
+
+    text = (
+        "📅 <b>Interaktiv Taqvim:</b>\n\n"
+        "Eslatmalar bor kunlar 🔴 belgisi bilan ajratilgan.\n"
+        "Kunning ustiga bosib, o'sha kundagi eslatmalarni ko'rishingiz mumkin:"
+    )
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cal:day:"))
+async def on_calendar_day(callback: CallbackQuery) -> None:
+    parts = callback.data.split(":")
+    year, month, day = int(parts[2]), int(parts[3]), int(parts[4])
+    target_date = date(year, month, day)
+
+    reminders = await firebase_service.get_active_reminders_for_user(callback.from_user.id)
+    day_reminders = []
+
+    for r in reminders:
+        dt = r.target_datetime
+        if r.type == ReminderType.ONCE and dt.date() == target_date:
+            day_reminders.append(r)
+        elif r.type == ReminderType.DAILY:
+            day_reminders.append(r)
+        elif r.type == ReminderType.WEEKLY and r.day_of_week and \
+                r.day_of_week.lower() == target_date.strftime("%A").lower():
+            day_reminders.append(r)
+        elif r.type == ReminderType.MONTHLY and r.day_of_month == day:
+            day_reminders.append(r)
+        elif r.type == ReminderType.YEARLY and dt.month == month and dt.day == day:
+            day_reminders.append(r)
+
+    back_builder = InlineKeyboardBuilder()
+    back_builder.button(text="📅 Taqvimga qaytish", callback_data=f"cal:nav:{year}:{month}")
+    back_markup = back_builder.as_markup()
+
+    date_str = f"{day:02d}.{month:02d}.{year}"
+
+    if not day_reminders:
+        await callback.message.edit_text(
+            f"📅 <b>{date_str}</b> sanasida eslatmalar yo'q.",
+            parse_mode="HTML",
+            reply_markup=back_markup,
+        )
+        await callback.answer()
+        return
+
+    await callback.message.edit_text(
+        f"📅 <b>{date_str} kundagi eslatmalar ({len(day_reminders)} ta):</b>",
+        parse_mode="HTML",
+    )
+    for r in day_reminders:
+        cat_emoji = CATEGORY_EMOJIS.get(getattr(r, "category", "boshqa"), "📌")
+        file_icon = "📷 " if r.file_type == "photo" else ("📄 " if r.file_type == "document" else "")
+        detail = f"{cat_emoji} {file_icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}\n" \
+                 f"{r.target_datetime.strftime('%d.%m.%Y %H:%M')}"
+        await callback.message.answer(detail, reply_markup=reminder_list_item_keyboard(r.reminder_id))
+
+    await callback.message.answer("Taqvimga qaytish uchun tugmani bosing:", reply_markup=back_markup)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("cat:"))
