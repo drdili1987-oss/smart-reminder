@@ -1,6 +1,6 @@
 """
-Parses free-form Uzbek/Russian/English text or voice messages into a structured
-reminder using Google Gemini API's JSON response mode and multimodal audio parsing.
+Parses free-form Uzbek/Russian/English text, voice messages, or photos into a
+structured reminder using Google Gemini API's JSON response mode and multimodal Vision/Audio parsing.
 """
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 _client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT_TEMPLATE = (
-    "Siz matn yoki audio xabardan eslatma tafsilotlarini ajratib oluvchi yordamchisiz. "
+    "Siz matn, rasm yoki audio xabardan eslatma tafsilotlarini ajratib oluvchi yordamchisiz. "
     "Foydalanuvchining joriy vaqti: {current_time}, vaqt zonasi: {user_timezone}. "
-    "Xabardan eslatma mazmuni, sanasi, vaqti va takrorlanish turini aniqlang "
+    "Xabardan/rasmdan eslatma mazmuni, sanasi, vaqti va takrorlanish turini aniqlang "
     "hamda qat'iy belgilangan JSON formatida qaytaring. "
     "Javobda faqat JSON bo'lsin, hech qanday izoh yoki matn qo'shmang.\n\n"
     "JSON schema:\n"
@@ -142,4 +142,21 @@ async def parse_reminder_audio(
         audio_part,
         "Ushbu audio yozuvdagi so'zlarni va eslatma ma'lumotlarini tahlil qiling va faqat JSON formatida qaytaring."
     ]
+    return await _generate_parsed_reminder(contents, system_prompt)
+
+
+async def parse_reminder_image(
+    image_bytes: bytes, mime_type: str, caption: str, current_time: datetime, user_timezone: str
+) -> ParsedReminder:
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+        current_time=current_time.strftime("%d.%m.%Y %H:%M (%A)"),
+        user_timezone=user_timezone,
+    )
+    image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+    prompt_text = (
+        f"Ushbu rasmdagi va izohdagi ({caption}) eslatma tafsilotlarini aniqlang va faqat JSON formatida qaytaring."
+        if caption else
+        "Ushbu rasmdagi matn va ma'lumotlardan eslatma tafsilotlarini ajratib olib, faqat JSON formatida qaytaring."
+    )
+    contents = [image_part, prompt_text]
     return await _generate_parsed_reminder(contents, system_prompt)

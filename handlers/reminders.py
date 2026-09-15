@@ -10,7 +10,7 @@ from handlers.states import ReminderFlow
 from keyboards.inline import confirm_reminder_keyboard, reminder_list_item_keyboard
 from models.reminder import Reminder, ReminderType, ReminderStatus
 from services import firebase_service, scheduler_service
-from services.ai_parser import parse_reminder_text, parse_reminder_audio, AIParseError
+from services.ai_parser import parse_reminder_text, parse_reminder_audio, parse_reminder_image, AIParseError
 from utils.timezones import now_in_tz, localize, ensure_weekly_consistency
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,11 @@ def _format_confirmation(reminder: Reminder) -> str:
         f"<b>Turi:</b> {TYPE_LABELS.get(reminder.type.value, reminder.type.value)}",
         f"<b>Sana/vaqt:</b> {reminder.target_datetime.strftime('%d.%m.%Y %H:%M')}",
     ]
+    if reminder.file_type == "photo":
+        lines.append("📷 <b>Biriktirilgan fayl:</b> Rasm")
+    elif reminder.file_type == "document":
+        lines.append("📄 <b>Biriktirilgan fayl:</b> Hujjat")
+
     if reminder.type == ReminderType.WEEKLY:
         lines.append(f"<b>Kun:</b> {reminder.day_of_week}")
     if reminder.type == ReminderType.MONTHLY:
@@ -85,7 +90,8 @@ async def cmd_list(message: Message) -> None:
 
     await message.answer(f"📋 Sizda {len(reminders)} ta faol eslatma bor:")
     for r in reminders:
-        detail = f"{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}\n" \
+        icon = "📷 " if r.file_type == "photo" else ("📄 " if r.file_type == "document" else "")
+        detail = f"{icon}{TYPE_LABELS.get(r.type.value, r.type.value)} — {r.title}\n" \
                   f"{r.target_datetime.strftime('%d.%m.%Y %H:%M')}"
         await message.answer(detail, reply_markup=reminder_list_item_keyboard(r.reminder_id))
 
@@ -115,7 +121,6 @@ async def on_free_text(message: Message, state: FSMContext) -> None:
 
     target_dt = localize(parsed.target_datetime, user_tz)
 
-    # Defensive correction: never blindly trust the model's date math.
     if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
         target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
 
@@ -211,6 +216,143 @@ async def on_voice_message(message: Message, state: FSMContext, bot: Bot) -> Non
     )
 
 
+@router.message(StateFilter(None), F.photo)
+async def on_photo_message(message: Message, state: FSMContext, bot: Bot) -> None:
+    user_tz = await firebase_service.get_user_timezone(message.from_user.id)
+    reference_now = now_in_tz(user_tz)
+    caption = message.caption or ""
+
+    status_msg = await message.answer("📷 Rasm tahlil qilinmoqda...")
+
+    try:
+        photo = message.photo[-1]  # highest resolution
+        file = await bot.get_file(photo.file_id)
+        file_bytes_io = await bot.download_file(file.file_path)
+        image_bytes = file_bytes_io.read()
+
+        parsed = await parse_reminder_image(
+            image_bytes=image_bytes,
+            mime_type="image/jpeg",
+            caption=caption,
+            current_time=reference_now,
+            user_timezone=user_tz,
+        )
+    except Exception as exc:
+        logger.exception("Photo parsing failed: %s", exc)
+        await status_msg.edit_text(
+            "Kechirasiz, rasmni tahlil qila olmadim. Rasm bilan birga matn (izoh) ham yuborib ko'ring."
+        )
+        return
+
+    if not parsed.is_valid or parsed.target_datetime is None:
+        await status_msg.edit_text(INVALID_TEXT_REPLY)
+        return
+
+    try:
+        reminder_type = ReminderType(parsed.type)
+    except ValueError:
+        await status_msg.edit_text(INVALID_TEXT_REPLY)
+        return
+
+    target_dt = localize(parsed.target_datetime, user_tz)
+
+    if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
+        target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
+
+    reminder = Reminder(
+        user_id=message.from_user.id,
+        title=parsed.title,
+        type=reminder_type,
+        target_datetime=target_dt,
+        day_of_week=parsed.day_of_week,
+        day_of_month=parsed.day_of_month,
+        timezone=user_tz,
+        file_id=photo.file_id,
+        file_type="photo",
+    )
+
+    try:
+        reminder.validate()
+    except ValueError as exc:
+        logger.warning("AI output failed validation: %s", exc)
+        await status_msg.edit_text(INVALID_TEXT_REPLY)
+        return
+
+    await state.update_data(pending_reminder=reminder)
+    await state.set_state(ReminderFlow.waiting_confirmation)
+    await status_msg.edit_text(
+        _format_confirmation(reminder),
+        parse_mode="HTML",
+        reply_markup=confirm_reminder_keyboard(),
+    )
+
+
+@router.message(StateFilter(None), F.document)
+async def on_document_message(message: Message, state: FSMContext, bot: Bot) -> None:
+    user_tz = await firebase_service.get_user_timezone(message.from_user.id)
+    reference_now = now_in_tz(user_tz)
+    caption = message.caption or ""
+
+    if not caption.strip():
+        await message.answer(
+            "📄 Hujjatli eslatma yaratish uchun, iltimos, hujjat bilan birga vaqt ko'rsatilgan izoh (caption) yozing.\n"
+            "Masalan: <i>'Ertaga 14:00 da ushbu shartnomani imzolash'</i>",
+            parse_mode="HTML",
+        )
+        return
+
+    status_msg = await message.answer("📄 Hujjat eslatmasi tahlil qilinmoqda...")
+
+    try:
+        parsed = await parse_reminder_text(caption, reference_now, user_tz)
+    except Exception as exc:
+        logger.exception("Document caption parsing failed: %s", exc)
+        await status_msg.edit_text(INVALID_TEXT_REPLY)
+        return
+
+    if not parsed.is_valid or parsed.target_datetime is None:
+        await status_msg.edit_text(INVALID_TEXT_REPLY)
+        return
+
+    try:
+        reminder_type = ReminderType(parsed.type)
+    except ValueError:
+        await status_msg.edit_text(INVALID_TEXT_REPLY)
+        return
+
+    target_dt = localize(parsed.target_datetime, user_tz)
+
+    if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
+        target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
+
+    reminder = Reminder(
+        user_id=message.from_user.id,
+        title=parsed.title,
+        type=reminder_type,
+        target_datetime=target_dt,
+        day_of_week=parsed.day_of_week,
+        day_of_month=parsed.day_of_month,
+        timezone=user_tz,
+        file_id=message.document.file_id,
+        file_type="document",
+    )
+
+    try:
+        reminder.validate()
+    except ValueError as exc:
+        logger.warning("AI output failed validation: %s", exc)
+        await status_msg.edit_text(INVALID_TEXT_REPLY)
+        return
+
+    await state.update_data(pending_reminder=reminder)
+    await state.set_state(ReminderFlow.waiting_confirmation)
+    await status_msg.edit_text(
+        _format_confirmation(reminder),
+        parse_mode="HTML",
+        reply_markup=confirm_reminder_keyboard(),
+    )
+
+
 @router.callback_query(StateFilter(ReminderFlow.waiting_confirmation), F.data == "confirm_reminder")
 async def confirm_reminder(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     data = await state.get_data()
@@ -225,7 +367,6 @@ async def confirm_reminder(callback: CallbackQuery, state: FSMContext, bot: Bot)
         await firebase_service.save_reminder(reminder)
     except firebase_service.FirebaseError as exc:
         logger.error("Could not save reminder to Firebase: %s", exc)
-        # Even if Firestore fails, schedule in-memory scheduler so user gets notification!
         scheduler_service.schedule_reminder(bot, reminder)
         await callback.message.edit_text(
             f"✅ Eslatma rejalashtirildi: <b>{reminder.title}</b>\n"

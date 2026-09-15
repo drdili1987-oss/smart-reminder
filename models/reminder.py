@@ -26,8 +26,6 @@ VALID_WEEKDAYS = {
     "friday", "saturday", "sunday",
 }
 
-# APScheduler uses 0=Monday..6=Sunday for CronTrigger day_of_week names,
-# but accepts the English names directly.
 WEEKDAY_TO_CRON = {
     "monday": "mon", "tuesday": "tue", "wednesday": "wed",
     "thursday": "thu", "friday": "fri", "saturday": "sat", "sunday": "sun",
@@ -44,6 +42,8 @@ class Reminder:
     day_of_month: Optional[int] = None
     status: ReminderStatus = ReminderStatus.ACTIVE
     timezone: str = "Asia/Tashkent"
+    file_id: Optional[str] = None
+    file_type: Optional[str] = None  # "photo" or "document"
     reminder_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: datetime = field(default_factory=datetime.utcnow)
 
@@ -83,6 +83,8 @@ class Reminder:
             day_of_month=data.get("day_of_month"),
             status=ReminderStatus(data.get("status", "active")),
             timezone=data.get("timezone", "Asia/Tashkent"),
+            file_id=data.get("file_id"),
+            file_type=data.get("file_type"),
             created_at=datetime.fromisoformat(data["created_at"])
             if isinstance(data.get("created_at"), str) else datetime.utcnow(),
         )

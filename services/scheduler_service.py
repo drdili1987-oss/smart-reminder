@@ -69,13 +69,33 @@ async def _fire_notification(bot: Bot, reminder_id: str) -> None:
         remove_job(reminder_id)
         return
 
-    text = f"⏰ Eslatma: {reminder.title}"
+    text = f"⏰ <b>Eslatma:</b> {reminder.title}"
+    markup = notification_keyboard(reminder.reminder_id, reminder.type.value)
+
     try:
-        await bot.send_message(
-            chat_id=reminder.user_id,
-            text=text,
-            reply_markup=notification_keyboard(reminder.reminder_id, reminder.type.value),
-        )
+        if reminder.file_id and reminder.file_type == "photo":
+            await bot.send_photo(
+                chat_id=reminder.user_id,
+                photo=reminder.file_id,
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+        elif reminder.file_id and reminder.file_type == "document":
+            await bot.send_document(
+                chat_id=reminder.user_id,
+                document=reminder.file_id,
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+        else:
+            await bot.send_message(
+                chat_id=reminder.user_id,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
     except Exception:
         logger.exception("Failed to send notification for reminder %s", reminder_id)
 
