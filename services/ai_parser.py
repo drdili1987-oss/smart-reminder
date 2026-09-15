@@ -1,6 +1,6 @@
 """
-Parses free-form Uzbek/Russian/English text into a structured reminder using
-Google Gemini API's JSON response mode.
+Parses free-form Uzbek/Russian/English text or voice messages into a structured
+reminder using Google Gemini API's JSON response mode and multimodal audio parsing.
 """
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 from google import genai
 from google.genai import types
@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 _client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT_TEMPLATE = (
-    "Siz matndan eslatma tafsilotlarini ajratib oluvchi yordamchisiz. "
+    "Siz matn yoki audio xabardan eslatma tafsilotlarini ajratib oluvchi yordamchisiz. "
     "Foydalanuvchining joriy vaqti: {current_time}, vaqt zonasi: {user_timezone}. "
-    "Matndan eslatma mazmuni, sanasi, vaqti va takrorlanish turini aniqlang "
+    "Xabardan eslatma mazmuni, sanasi, vaqti va takrorlanish turini aniqlang "
     "hamda qat'iy belgilangan JSON formatida qaytaring. "
     "Javobda faqat JSON bo'lsin, hech qanday izoh yoki matn qo'shmang.\n\n"
     "JSON schema:\n"
@@ -35,7 +35,7 @@ SYSTEM_PROMPT_TEMPLATE = (
     '  "is_valid": boolean\n'
     "}}\n\n"
     "Qoidalar:\n"
-    "- Agar matn eslatmaga aloqador bo'lmasa yoki vaqt/sana aniqlanmasa, is_valid=false qaytaring.\n"
+    "- Agar xabar eslatmaga aloqador bo'lmasa yoki vaqt/sana aniqlanmasa, is_valid=false qaytaring.\n"
     "- 'once' uchun target_datetime to'liq sana+vaqt bo'lishi shart.\n"
     "- 'weekly' uchun day_of_week to'ldirilishi shart, target_datetime shu haftadagi eng yaqin mos kunga qo'yiladi.\n"
     "- 'monthly' uchun day_of_month to'ldirilishi shart.\n"
@@ -58,14 +58,9 @@ class AIParseError(Exception):
     pass
 
 
-async def parse_reminder_text(
-    text: str, current_time: datetime, user_timezone: str
+async def _generate_parsed_reminder(
+    contents: Union[str, list], system_prompt: str
 ) -> ParsedReminder:
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-        current_time=current_time.strftime("%d.%m.%Y %H:%M (%A)"),
-        user_timezone=user_timezone,
-    )
-
     models_to_try = [GEMINI_MODEL, "gemini-3.5-flash", "gemini-3.5-flash-lite"]
     seen = set()
     models = [m for m in models_to_try if not (m in seen or seen.add(m))]
@@ -77,7 +72,7 @@ async def parse_reminder_text(
         try:
             response = await _client.aio.models.generate_content(
                 model=model_name,
-                contents=text,
+                contents=contents,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     system_instruction=system_prompt,
@@ -123,3 +118,28 @@ async def parse_reminder_text(
         day_of_month=data.get("day_of_month"),
         is_valid=is_valid and bool(data.get("title")),
     )
+
+
+async def parse_reminder_text(
+    text: str, current_time: datetime, user_timezone: str
+) -> ParsedReminder:
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+        current_time=current_time.strftime("%d.%m.%Y %H:%M (%A)"),
+        user_timezone=user_timezone,
+    )
+    return await _generate_parsed_reminder(text, system_prompt)
+
+
+async def parse_reminder_audio(
+    audio_bytes: bytes, mime_type: str, current_time: datetime, user_timezone: str
+) -> ParsedReminder:
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+        current_time=current_time.strftime("%d.%m.%Y %H:%M (%A)"),
+        user_timezone=user_timezone,
+    )
+    audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
+    contents = [
+        audio_part,
+        "Ushbu audio yozuvdagi so'zlarni va eslatma ma'lumotlarini tahlil qiling va faqat JSON formatida qaytaring."
+    ]
+    return await _generate_parsed_reminder(contents, system_prompt)

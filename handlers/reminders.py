@@ -10,7 +10,7 @@ from handlers.states import ReminderFlow
 from keyboards.inline import confirm_reminder_keyboard, reminder_list_item_keyboard
 from models.reminder import Reminder, ReminderType, ReminderStatus
 from services import firebase_service, scheduler_service
-from services.ai_parser import parse_reminder_text, AIParseError
+from services.ai_parser import parse_reminder_text, parse_reminder_audio, AIParseError
 from utils.timezones import now_in_tz, localize, ensure_weekly_consistency
 
 logger = logging.getLogger(__name__)
@@ -140,6 +140,72 @@ async def on_free_text(message: Message, state: FSMContext) -> None:
     await state.set_state(ReminderFlow.waiting_confirmation)
     await message.answer(
         _format_confirmation(reminder),
+        parse_mode="HTML",
+        reply_markup=confirm_reminder_keyboard(),
+    )
+
+
+@router.message(StateFilter(None), F.voice)
+async def on_voice_message(message: Message, state: FSMContext, bot: Bot) -> None:
+    user_tz = await firebase_service.get_user_timezone(message.from_user.id)
+    reference_now = now_in_tz(user_tz)
+
+    status_msg = await message.answer("🎙 Ovozli xabar tahlil qilinmoqda...")
+
+    try:
+        file = await bot.get_file(message.voice.file_id)
+        file_bytes_io = await bot.download_file(file.file_path)
+        audio_bytes = file_bytes_io.read()
+
+        parsed = await parse_reminder_audio(
+            audio_bytes=audio_bytes,
+            mime_type="audio/ogg",
+            current_time=reference_now,
+            user_timezone=user_tz,
+        )
+    except Exception as exc:
+        logger.exception("Voice parsing failed: %s", exc)
+        await status_msg.edit_text(
+            "Kechirasiz, ovozli xabarni tahlil qila olmadim. Qaytadan urinib ko'ring."
+        )
+        return
+
+    if not parsed.is_valid or parsed.target_datetime is None:
+        await status_msg.edit_text(INVALID_TEXT_REPLY)
+        return
+
+    try:
+        reminder_type = ReminderType(parsed.type)
+    except ValueError:
+        await status_msg.edit_text(INVALID_TEXT_REPLY)
+        return
+
+    target_dt = localize(parsed.target_datetime, user_tz)
+
+    if reminder_type == ReminderType.WEEKLY and parsed.day_of_week:
+        target_dt = ensure_weekly_consistency(target_dt, parsed.day_of_week, reference_now)
+
+    reminder = Reminder(
+        user_id=message.from_user.id,
+        title=parsed.title,
+        type=reminder_type,
+        target_datetime=target_dt,
+        day_of_week=parsed.day_of_week,
+        day_of_month=parsed.day_of_month,
+        timezone=user_tz,
+    )
+
+    try:
+        reminder.validate()
+    except ValueError as exc:
+        logger.warning("AI output failed validation: %s", exc)
+        await status_msg.edit_text(INVALID_TEXT_REPLY)
+        return
+
+    await state.update_data(pending_reminder=reminder)
+    await state.set_state(ReminderFlow.waiting_confirmation)
+    await status_msg.edit_text(
+        f"🎙 <b>Ovozli xabar tahlil qilindi:</b>\n\n" + _format_confirmation(reminder),
         parse_mode="HTML",
         reply_markup=confirm_reminder_keyboard(),
     )
